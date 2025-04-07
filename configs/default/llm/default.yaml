@@ -37,33 +37,14 @@ connections:
 model_selection:
   default_client: "OllamaClient"
   default_instance: "local"
-  default_model: "llama3.3:8b-instruct-q8_0"
+  default_model: "llama3.3:70b-instruct-q8_0"
   
   # Model selection for specific prompt types
   node_extraction:
     client: "OllamaClient"
     instance: "local"
-    model: "llama3.3:8b-instruct-q8_0"
+ 
     
-  edge_extraction:
-    client: "OllamaClient"
-    instance: "local"
-    model: "llama3.3:70b-instruct-q8_0"
-    fallback:
-      client: "OllamaClient"
-      instance: "local"
-      model: "llama3.3:8b-instruct-q8_0"
-    
-  summarization:
-    client: "OllamaClient"
-    instance: "local"
-    model: "llama3.3:70b-instruct-q8_0"
-    
-  reflexion:
-    client: "OllamaClient"
-    instance: "local"
-    model: "llama3.3:8b-instruct-q8_0"
-
 # Common parameter settings for all prompt types
 common:
   temperature: 0.7

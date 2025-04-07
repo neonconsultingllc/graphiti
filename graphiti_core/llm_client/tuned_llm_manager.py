@@ -48,6 +48,13 @@ class TunedLLMManager(LLMClient):
         # Load global model selection config with potential group override
         self.model_selection = load_config("model_selection", group_id=self.group_id)
 
+        # Initialize configuration cache
+        self.config_cache: Dict[str, Dict[str, Any]] = {}
+
+        # Cache the model selection configuration
+        model_selection_cache_key = f"model_selection:{self.group_id}"
+        self.config_cache[model_selection_cache_key] = self.model_selection
+
         # Health status tracking
         self.health_status: Dict[str, Dict[str, bool]] = {}
         self.last_checked: Dict[str, Dict[str, float]] = {}
@@ -105,8 +112,22 @@ class TunedLLMManager(LLMClient):
             client_type = client.__class__.__name__
             model_name = getattr(client, 'model', None)
 
-        # Load configuration for this prompt type, client, model, and group
-        config = load_config(prompt_type, client_type, model_name, group_id=effective_group_id)
+        # Get configuration from cache or load it
+        cache_key = f"{prompt_type}:{client_type}:{model_name}:{effective_group_id}"
+        if cache_key not in self.config_cache:
+            try:
+                config = load_config(prompt_type, client_type, model_name, group_id=effective_group_id)
+                # Cache the configuration
+                self.config_cache[cache_key] = config
+            except Exception as e:
+                logger.warning(f"Error loading config for prompt type {prompt_type}: {str(e)}")
+                # Fall back to default configuration
+                config = load_config("default", client_type, model_name, group_id=effective_group_id)
+                # Cache the configuration
+                self.config_cache[cache_key] = config
+        else:
+            # Use cached configuration
+            config = self.config_cache[cache_key]
 
         # Apply content-based adjustments if needed
         if hasattr(context, 'content_length') and context.content_length and context.content_length > 10000 and "max_tokens" in config:
@@ -131,10 +152,29 @@ class TunedLLMManager(LLMClient):
                         instance: Optional[str] = None, model_name: Optional[str] = None,
                         group_id: Optional[str] = None) -> LLMClient:
         """Get or create a client for the specified prompt type, client type, instance, and model."""
+        # Use provided group_id or fall back to self.group_id
+        effective_group_id = group_id if group_id is not None else self.group_id
+
+        # Get model selection from cache or load it
+        model_selection_cache_key = f"model_selection:{effective_group_id}"
+        if model_selection_cache_key not in self.config_cache:
+            # Load model selection configuration
+            model_selection = load_config("model_selection", group_id=effective_group_id)
+            # Cache it
+            self.config_cache[model_selection_cache_key] = model_selection
+        else:
+            # Use cached model selection
+            model_selection = self.config_cache[model_selection_cache_key]
+
         # Determine which client, instance, and model to use
         client_config = None
-        if prompt_type in self.model_selection:
-            client_config = self.model_selection.get(prompt_type, {})
+        if prompt_type in model_selection and isinstance(model_selection[prompt_type], dict):
+            client_config = model_selection.get(prompt_type, {})
+
+        # Get default values
+        default_client_type = model_selection.get("default_client", "OllamaClient")
+        default_instance = model_selection.get("default_instance", "local")
+        default_model = model_selection.get("default_model")
 
         if client_config and "client" in client_config:
             # Use prompt-specific client if specified
@@ -142,10 +182,10 @@ class TunedLLMManager(LLMClient):
             instance = client_config.get("instance")
             model_name = client_config.get("model")
         else:
-            # Fall back to defaults
-            client_type = client_type or self.model_selection.get("default_client", "OllamaClient")
-            instance = instance or self.model_selection.get("default_instance", "local")
-            model_name = model_name or self.model_selection.get("default_model")
+            # Fall back to defaults or explicitly provided values
+            client_type = client_type or default_client_type
+            instance = instance or default_instance
+            model_name = model_name or default_model
 
         # Check instance health and potentially use a different instance if this client type supports instances
         if instance and "instances" in self.connections.get(client_type, {}):

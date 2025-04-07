@@ -1,0 +1,18 @@
+common:
+  max_tokens: 8192
+  temperature: 0.1
+  top_p: 0.95
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+
+node_extraction:
+  temperature: 0.2
+  max_tokens: 4096
+
+summarization:
+  temperature: 0.3
+  max_tokens: 1024
+
+reflexion:
+  temperature: 0.0
+  max_tokens: 2048

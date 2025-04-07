@@ -1,0 +1,501 @@
+#!/usr/bin/env python3
+"""
+tune-llm-config-check - A command-line tool for debugging TunedLLMManager configurations
+
+This tool helps visualize how configurations are resolved for different group IDs and prompt types,
+showing the inheritance chain and final resolved settings.
+"""
+
+import os
+import sys
+import json
+from typing import Dict, Any, List, Optional
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.tree import Tree
+import rich_click as click
+
+# Add the parent directory to the path so we can import the graphiti modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    # Import from graphiti_core directly
+    from graphiti_core.llm_client.tuned_manager.loader import (
+        load_config, get_prompt_types
+    )
+except ImportError as e:
+    click.secho(f"Error: Could not import the configuration loader: {e}", fg="red")
+    click.secho("Make sure you're running this script from the graphiti directory.")
+    click.secho("You may need to install setuptools: pip install setuptools", fg="yellow")
+    sys.exit(1)
+
+# Initialize rich console
+console = Console()
+
+# Configure rich-click
+click.rich_click.USE_RICH_MARKUP = True
+click.rich_click.USE_MARKDOWN = True
+click.rich_click.SHOW_ARGUMENTS = True
+click.rich_click.GROUP_ARGUMENTS_OPTIONS = True
+click.rich_click.STYLE_ERRORS_SUGGESTION = "yellow italic"
+
+
+
+
+
+def check_required_fields(config: Dict[str, Any], prompt_type: Optional[str] = None) -> List[str]:
+    """Check if all required fields are present in the configuration."""
+    warnings = []
+
+    # Check for common required fields
+    required_fields = ["temperature", "max_tokens"]
+    for field in required_fields:
+        if field not in config:
+            if prompt_type:
+                warnings.append(f"Missing '{field}' in {prompt_type} config")
+            else:
+                warnings.append(f"Missing '{field}' in config")
+
+    return warnings
+
+@click.group()
+@click.version_option(version="1.0.0")
+def cli():
+    """Debug and visualize TunedLLMManager configurations."""
+    pass
+
+def show_inheritance_chain(prompt_type: str, inheritance_info: Dict[str, Any]):
+    """Show the configuration inheritance chain for a prompt type."""
+    # Create a tree for the inheritance chain
+    tree = Tree("📁 Configuration Files")
+
+    # Get the sources from the inheritance info
+    sources = inheritance_info.get("sources", {})
+    files = inheritance_info.get("files", [])
+
+    # Create a tree node for each file
+    for i, file_info in enumerate(files, 1):
+        file_path = file_info.get("path")
+        file_exists = file_info.get("exists", False)
+        file_content = file_info.get("content", {})
+
+        if file_exists:
+            file_node = tree.add(f"[green]✓ {i}. {file_path} (Found)[/]")
+
+            # Get the relevant sections
+            sections_to_show = ["common", prompt_type]
+            for section in sections_to_show:
+                if section in file_content and file_content[section]:
+                    section_node = file_node.add(f"[blue]Section: {section}[/]")
+
+                    for key, value in file_content[section].items():
+                        # Check if this is the file that contributes this value to the final config
+                        is_source = key in sources and sources[key].get("file") == file_path and sources[key].get("section") == section
+
+                        if is_source:
+                            # This value is used in the final configuration
+                            section_node.add(f"[green]{key}[/]: {value} [green]← USED IN FINAL CONFIG[/]")
+                        else:
+                            # This value is either overridden or redundant
+                            section_node.add(f"[dim cyan]{key}[/]: [dim]{value}[/]")
+        else:
+            tree.add(f"[yellow]⚠ {i}. {file_path} (Not found)[/]")
+
+    console.print(tree)
+    console.print()
+
+def show_config_for_prompt_type(prompt_type: str, group: Optional[str] = None, verbose: bool = False, show_title: bool = True):
+    """Show the configuration for a specific prompt type."""
+    if show_title:
+        # Create a panel for the title
+        title_panel = Panel(f"Configuration for prompt type '[bold cyan]{prompt_type}[/]' with group '[bold cyan]{group or 'default'}[/]'",
+                           expand=False, border_style="cyan")
+        console.print(title_panel)
+
+    # Load the model selection configuration
+    model_selection_result = load_config("model_selection", group_id=group)
+
+    # Determine which client, instance, and model to use
+    client_config = None
+    if prompt_type in model_selection_result and isinstance(model_selection_result[prompt_type], dict):
+        client_config = model_selection_result.get(prompt_type, {})
+
+    # Get default values
+    default_client_type = model_selection_result.get("default_client", "OllamaClient")
+    default_instance = model_selection_result.get("default_instance", "local")
+    default_model = model_selection_result.get("default_model")
+
+    if client_config and "client" in client_config:
+        # Use prompt-specific client if specified
+        client_type = client_config.get("client")
+        instance = client_config.get("instance")
+        model_name = client_config.get("model")
+    else:
+        # Fall back to defaults
+        client_type = default_client_type
+        instance = default_instance
+        model_name = default_model
+
+    # Create a table for the model selection
+    selection_table = Table(title="Model Selection", show_header=False, box=None)
+    selection_table.add_column("Parameter", style="blue")
+    selection_table.add_column("Value")
+
+    selection_table.add_row("Selected client", client_type or "[italic]Not specified[/]")
+    selection_table.add_row("Selected instance", instance or "[italic]Not specified[/]")
+    selection_table.add_row("Selected model", model_name or "[italic]Not specified[/]")
+
+    console.print(selection_table)
+
+    # Get the resolved configuration with inheritance info if verbose mode is enabled
+    if verbose:
+        # Load configuration with inheritance info
+        result = load_config(prompt_type, client_type, model_name, group_id=group, inheritance_info=True)
+        config = result["config"]
+
+        # Show the inheritance chain
+        console.print(Panel("Configuration Inheritance Chain", expand=False, border_style="cyan"))
+
+        # Show the inheritance chain
+        show_inheritance_chain(prompt_type, result)
+    else:
+        # Load configuration without inheritance info
+        config = load_config(prompt_type, client_type, model_name, group_id=group)
+
+    # Show the resolved configuration if not in multi-prompt mode or if verbose is enabled
+    if show_title or verbose:
+        console.print(Panel("Resolved Configuration", expand=False, border_style="cyan"))
+
+    # Create a table for the configuration
+    config_table = Table(show_header=True)
+    config_table.add_column("Parameter", style="blue")
+    config_table.add_column("Value")
+
+    for key, value in sorted(config.items()):
+        config_table.add_row(key, str(value))
+
+    console.print(config_table)
+    console.print()
+
+    # Check for required fields
+    warnings = check_required_fields(config, prompt_type)
+    if warnings:
+        if show_title:
+            console.print(Panel("Warnings", expand=False, border_style="yellow"))
+        else:
+            console.print("[yellow]⚠ Warnings:[/]")
+        for warning in warnings:
+            console.print(f"[yellow]⚠ {warning}[/]")
+    else:
+        if show_title:
+            console.print("[green]✓ All required fields are present in the configuration.[/]")
+        else:
+            console.print("[green]✓ All required fields are present.[/]")
+
+@cli.command("show")
+@click.option("--prompt-type", "-p", help="Prompt type to check (if not specified, shows all prompt types)")
+@click.option("--group", "-g", help="Group ID to check")
+@click.option("--verbose", "-v", is_flag=True, help="Show verbose output including configuration inheritance chain")
+def show_config(prompt_type: Optional[str] = None, group: Optional[str] = None, verbose: bool = False):
+    """Show the resolved configuration for the specified parameters."""
+    # If no prompt type is provided, show all prompt types
+    if prompt_type is None:
+        # Get all prompt types using the loader function
+        prompt_types = get_prompt_types(group_id=group)
+
+        # Create a panel for the title
+        title_panel = Panel(f"All Configurations for group '[bold cyan]{group or 'default'}[/]'",
+                           expand=False, border_style="cyan")
+        console.print(title_panel)
+
+        # Show configuration for each prompt type
+        for i, pt in enumerate(prompt_types):
+            console.print(f"\n[bold cyan]Prompt Type: {pt}[/]")
+            console.print("=" * (14 + len(pt)))
+
+            # Show configuration for this prompt type
+            show_config_for_prompt_type(pt, group, verbose, show_title=False)
+
+            # Add a separator between prompt types
+            if i < len(prompt_types) - 1:
+                console.print("\n" + "-" * 50)
+    else:
+        # Show configuration for a specific prompt type
+        show_config_for_prompt_type(prompt_type, group, verbose)
+
+@cli.command("simulate")
+@click.option("--prompt-type", "-p", required=True, help="Prompt type to simulate")
+@click.option("--group", "-g", help="Group ID to simulate")
+@click.option("--verbose", "-v", is_flag=True, help="Show verbose output")
+def simulate_request(prompt_type: str, group: Optional[str] = None, verbose: bool = False):
+    """Simulate a request to the TunedLLMManager."""
+    # Create a panel for the title
+    title_panel = Panel(f"Simulating request for prompt type '[bold cyan]{prompt_type}[/]' with group '[bold cyan]{group or 'default'}[/]'",
+                       expand=False, border_style="cyan")
+    console.print(title_panel)
+
+    # Load the model selection configuration
+    model_selection_result = load_config("model_selection", group_id=group)
+
+    # Determine which client, instance, and model to use
+    client_config = None
+    if prompt_type in model_selection_result and isinstance(model_selection_result[prompt_type], dict):
+        client_config = model_selection_result.get(prompt_type, {})
+
+    # Get default values
+    default_client_type = model_selection_result.get("default_client", "OllamaClient")
+    default_instance = model_selection_result.get("default_instance", "local")
+    default_model = model_selection_result.get("default_model")
+
+    if client_config and "client" in client_config:
+        # Use prompt-specific client if specified
+        client_type = client_config.get("client")
+        instance = client_config.get("instance")
+        model_name = client_config.get("model")
+    else:
+        # Fall back to defaults
+        client_type = default_client_type
+        instance = default_instance
+        model_name = default_model
+
+    # Get the resolved configuration
+    if verbose:
+        # Load configuration with inheritance info
+        result = load_config(prompt_type, client_type, model_name, group_id=group, inheritance_info=True)
+        config = result["config"]
+    else:
+        # Load configuration without inheritance info
+        config = load_config(prompt_type, client_type, model_name, group_id=group)
+
+    # Create a panel for the request context
+    console.print(Panel("Request Context", expand=False, border_style="blue"))
+
+    # Create a table for the request context
+    context_table = Table(show_header=False, box=None)
+    context_table.add_column("Parameter", style="blue")
+    context_table.add_column("Value")
+
+    context_table.add_row("prompt_type", prompt_type)
+    context_table.add_row("group_id", group or "[italic]None[/]")
+    context_table.add_row("client_type", client_type or "[italic]None[/]")
+    context_table.add_row("instance", instance or "[italic]None[/]")
+    context_table.add_row("model_name", model_name or "[italic]None[/]")
+
+    console.print(context_table)
+    console.print()
+
+    # Create a panel for the TunedLLMManager actions
+    console.print(Panel("TunedLLMManager would:", expand=False, border_style="blue"))
+
+    # Create a list of actions
+    actions = [
+        f"1. Select client: [bold]{client_type or 'default'}[/]",
+        f"2. Select instance: [bold]{instance or 'default'}[/]",
+        f"3. Select model: [bold]{model_name or 'default'}[/]",
+        "4. Apply the following parameters:"
+    ]
+
+    for action in actions:
+        console.print(action)
+
+    # Create a table for the configuration
+    config_table = Table(show_header=True)
+    config_table.add_column("Parameter", style="blue")
+    config_table.add_column("Value")
+
+    for key, value in sorted(config.items()):
+        config_table.add_row(key, str(value))
+
+    console.print(config_table)
+
+    if verbose:
+        # Load configuration with inheritance info
+        result = load_config(prompt_type, client_type, model_name, group_id=group, inheritance_info=True)
+        config = result["config"]
+
+        # Show the inheritance chain
+        console.print(Panel("Configuration Inheritance Chain", expand=False, border_style="cyan"))
+
+        # Show the inheritance chain
+        show_inheritance_chain(prompt_type, result)
+
+@cli.command("compare")
+@click.option("--prompt-type", "-p", required=True, help="Prompt type to compare")
+@click.option("--group1", required=True, help="First group ID to compare")
+@click.option("--group2", required=True, help="Second group ID to compare")
+def compare_configs(prompt_type: str, group1: str, group2: str):
+    """Compare configurations between two groups."""
+    # Create a panel for the title
+    title_panel = Panel(f"Comparing configurations for prompt type '[bold cyan]{prompt_type}[/]'",
+                       expand=False, border_style="cyan")
+    console.print(title_panel)
+
+    console.print(f"Group 1: [blue]{group1 or 'default'}[/]")
+    console.print(f"Group 2: [blue]{group2 or 'default'}[/]")
+    console.print()
+
+    # Load the model selection configurations
+    model_selection_result1 = load_config("model_selection", group_id=group1)
+    model_selection_result2 = load_config("model_selection", group_id=group2)
+
+    # Determine which client, instance, and model to use for group1
+    client_config1 = None
+    if prompt_type in model_selection_result1 and isinstance(model_selection_result1[prompt_type], dict):
+        client_config1 = model_selection_result1.get(prompt_type, {})
+
+    # Get default values for group1
+    default_client_type1 = model_selection_result1.get("default_client", "OllamaClient")
+    default_instance1 = model_selection_result1.get("default_instance", "local")
+    default_model1 = model_selection_result1.get("default_model")
+
+    if client_config1 and "client" in client_config1:
+        # Use prompt-specific client if specified
+        client_type1 = client_config1.get("client")
+        instance1 = client_config1.get("instance")
+        model_name1 = client_config1.get("model")
+    else:
+        # Fall back to defaults
+        client_type1 = default_client_type1
+        instance1 = default_instance1
+        model_name1 = default_model1
+
+    # Determine which client, instance, and model to use for group2
+    client_config2 = None
+    if prompt_type in model_selection_result2 and isinstance(model_selection_result2[prompt_type], dict):
+        client_config2 = model_selection_result2.get(prompt_type, {})
+
+    # Get default values for group2
+    default_client_type2 = model_selection_result2.get("default_client", "OllamaClient")
+    default_instance2 = model_selection_result2.get("default_instance", "local")
+    default_model2 = model_selection_result2.get("default_model")
+
+    if client_config2 and "client" in client_config2:
+        # Use prompt-specific client if specified
+        client_type2 = client_config2.get("client")
+        instance2 = client_config2.get("instance")
+        model_name2 = client_config2.get("model")
+    else:
+        # Fall back to defaults
+        client_type2 = default_client_type2
+        instance2 = default_instance2
+        model_name2 = default_model2
+
+    # Get the resolved configurations
+    config1 = load_config(prompt_type, client_type1, model_name1, group_id=group1)
+    config2 = load_config(prompt_type, client_type2, model_name2, group_id=group2)
+
+    # Compare model selections
+    console.print(Panel("Model Selection Comparison", expand=False, border_style="cyan"))
+
+    # Create a table for the model selection comparison
+    selection_table = Table(show_header=True)
+    selection_table.add_column("Parameter", style="blue")
+    selection_table.add_column(group1 or "default", style="green")
+    selection_table.add_column(group2 or "default", style="yellow")
+
+    selection_table.add_row("Client", client_type1 or "[italic]Not specified[/]", client_type2 or "[italic]Not specified[/]")
+    selection_table.add_row("Instance", instance1 or "[italic]Not specified[/]", instance2 or "[italic]Not specified[/]")
+    selection_table.add_row("Model", model_name1 or "[italic]Not specified[/]", model_name2 or "[italic]Not specified[/]")
+
+    console.print(selection_table)
+    console.print()
+
+    # Compare configurations
+    console.print(Panel("Configuration Comparison", expand=False, border_style="cyan"))
+
+    # Get all keys from both configurations
+    all_keys = sorted(set(list(config1.keys()) + list(config2.keys())))
+
+    # Create a table for the configuration comparison
+    config_table = Table(show_header=True)
+    config_table.add_column("Parameter", style="blue")
+    config_table.add_column(group1 or "default", style="green")
+    config_table.add_column(group2 or "default", style="yellow")
+
+    for key in all_keys:
+        value1 = str(config1.get(key, "[italic]Not set[/]"))
+        value2 = str(config2.get(key, "[italic]Not set[/]"))
+
+        # Highlight differences
+        if config1.get(key) != config2.get(key):
+            key = f"[bold]{key}[/]"
+            if value1 == "[italic]Not set[/]":
+                value1 = f"[red]{value1}[/]"
+            else:
+                value1 = f"[green]{value1}[/]"
+
+            if value2 == "[italic]Not set[/]":
+                value2 = f"[red]{value2}[/]"
+            else:
+                value2 = f"[yellow]{value2}[/]"
+
+        config_table.add_row(key, value1, value2)
+
+    console.print(config_table)
+
+@cli.command("json")
+@click.option("--prompt-type", "-p", required=True, help="Prompt type to export")
+@click.option("--group", "-g", help="Group ID to export")
+@click.option("--output", "-o", help="Output file (default: stdout)")
+def export_json(prompt_type: str, group: Optional[str] = None, output: Optional[str] = None):
+    """Export the configuration as JSON."""
+    # Load the model selection configuration
+    model_selection_result = load_config("model_selection", group_id=group)
+
+    # Determine which client, instance, and model to use
+    client_config = None
+    if prompt_type in model_selection_result and isinstance(model_selection_result[prompt_type], dict):
+        client_config = model_selection_result.get(prompt_type, {})
+
+    # Get default values
+    default_client_type = model_selection_result.get("default_client", "OllamaClient")
+    default_instance = model_selection_result.get("default_instance", "local")
+    default_model = model_selection_result.get("default_model")
+
+    if client_config and "client" in client_config:
+        # Use prompt-specific client if specified
+        client_type = client_config.get("client")
+        instance = client_config.get("instance")
+        model_name = client_config.get("model")
+    else:
+        # Fall back to defaults
+        client_type = default_client_type
+        instance = default_instance
+        model_name = default_model
+
+    # Get the resolved configuration
+    config = load_config(prompt_type, client_type, model_name, group_id=group)
+
+    # Add model selection information
+    result = {
+        "prompt_type": prompt_type,
+        "group_id": group,
+        "client_type": client_type,
+        "instance": instance,
+        "model_name": model_name,
+        "config": config
+    }
+
+    # Export to file or stdout
+    if output:
+        with open(output, 'w') as f:
+            json.dump(result, f, indent=2)
+        console.print(f"[green]✓ Configuration exported to {output}[/]")
+    else:
+        console.print_json(json.dumps(result, indent=2))
+
+def main():
+    """Main entry point."""
+    try:
+        cli()
+    except Exception as e:
+        console.print(f"[red]❌ Error: {str(e)}[/]")
+        if click.get_current_context().params.get("verbose", False):
+            import traceback
+            console.print("[red]Traceback:[/]")
+            console.print(traceback.format_exc())
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
