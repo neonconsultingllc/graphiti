@@ -1,0 +1,89 @@
+# Default configuration for all clients and models
+
+# Global connection settings
+connections:
+  OllamaClient:
+    # Client-specific settings
+    settings:
+      health_endpoint: "/api/health"
+      timeout: 5.0
+      
+    # Multiple instances
+    instances:
+      local:
+        base_url: "http://localhost:11434"
+        api_key: ""
+        description: "Local Ollama server"
+        
+  OpenAIClient:
+    # Client-specific settings
+    settings:
+      health_endpoint: null  # No health endpoint for OpenAI
+      timeout: 10.0
+      
+    base_url: "https://api.openai.com/v1"
+    api_key: "${OPENAI_API_KEY}"
+    
+  AnthropicClient:
+    # Client-specific settings
+    settings:
+      health_endpoint: null  # No health endpoint for Anthropic
+      timeout: 15.0
+      
+    base_url: "https://api.anthropic.com"
+    api_key: "${ANTHROPIC_API_KEY}"
+
+# Model selection settings
+model_selection:
+  default_client: "OllamaClient"
+  default_instance: "local"
+  default_model: "llama3.3:8b-instruct-q8_0"
+  
+  # Model selection for specific prompt types
+  node_extraction:
+    client: "OllamaClient"
+    instance: "local"
+    model: "llama3.3:8b-instruct-q8_0"
+    
+  edge_extraction:
+    client: "OllamaClient"
+    instance: "local"
+    model: "llama3.3:70b-instruct-q8_0"
+    fallback:
+      client: "OllamaClient"
+      instance: "local"
+      model: "llama3.3:8b-instruct-q8_0"
+    
+  summarization:
+    client: "OllamaClient"
+    instance: "local"
+    model: "llama3.3:70b-instruct-q8_0"
+    
+  reflexion:
+    client: "OllamaClient"
+    instance: "local"
+    model: "llama3.3:8b-instruct-q8_0"
+
+# Common parameter settings for all prompt types
+common:
+  temperature: 0.7
+  top_p: 0.95
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+
+# Settings for specific prompt types
+node_extraction:
+  max_tokens: 4096
+  temperature: 0.2  # Override common setting
+
+edge_extraction:
+  max_tokens: 8192
+  temperature: 0.1  # Override common setting
+
+reflexion:
+  max_tokens: 2048
+  temperature: 0.0  # More deterministic for reflexion
+
+summarization:
+  max_tokens: 1024
+  temperature: 0.3

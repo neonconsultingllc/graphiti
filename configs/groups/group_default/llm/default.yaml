@@ -1,0 +1,28 @@
+# Group-specific configuration for the default group
+
+# Group-specific connection settings
+connections:
+  OllamaClient:
+    instances:
+      local:
+        base_url: "http://localhost:11434"  # Same as default, but could be different
+        
+  OpenAIClient:
+    api_key: "${GROUP_DEFAULT_OPENAI_API_KEY}"  # Group-specific API key
+
+# Group-specific model selection
+model_selection:
+  node_extraction:
+    client: "OllamaClient"
+    instance: "local"
+    model: "llama3.3:8b-instruct-q8_0"  # Use smaller model for this group
+    
+  edge_extraction:
+    client: "OllamaClient"
+    instance: "local"
+    model: "llama3.3:8b-instruct-q8_0"  # Use smaller model for this group too
+
+# Group-specific parameter settings
+node_extraction:
+  max_tokens: 2048  # Use fewer tokens for this group
+  temperature: 0.3  # Different temperature for this group
