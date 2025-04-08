@@ -1,81 +1,73 @@
-# Client Registry and Auto-Discovery
+# Client Registry and Direct Imports
 
-The Multi-Model LLM Architecture includes an auto-discovery mechanism that automatically finds and registers all LLM client implementations in the codebase. This eliminates the need to manually update the `TunedLLMManager` class when adding new client types.
-
-## Auto-Discovery Process
-
-```mermaid
-flowchart TD
-    A[Initialize ClientRegistry] --> B[Scan llm_client Directory]
-    B --> C{For Each Module}
-    C --> D{Ends with _client.py?}
-    D -->|No| C
-    D -->|Yes| E[Import Module]
-    E --> F{For Each Class in Module}
-    F --> G{Inherits from LLMClient?}
-    G -->|No| F
-    G -->|Yes| H[Register Client Class]
-    H --> F
-    F --> C
-    C --> I[Registry Initialized]
-```
+The Multi-Model LLM Architecture includes a client registry that manages LLM client implementations. This eliminates the need to manually update the `TunedLLMManager` class when adding new client types.
 
 ## Client Registry Design
 
-The ClientRegistry is designed to automatically discover and register LLM client implementations:
+The ClientRegistry provides a central registry for LLM client implementations:
 
-- It maintains a dictionary of client classes indexed by their class names
-- The `initialize` method scans the `llm_client` directory for client implementations
+- It imports client classes directly from `graphiti_core.llm_client` when needed
+- It caches imported client classes for reuse
 - It provides methods to get a specific client class or all registered client classes
-- The registry is initialized only once and then reused
+
+```mermaid
+flowchart TD
+    A[TunedLLMManager] --> B{Client in Registry?}
+    B -->|Yes| C[Return Cached Client]
+    B -->|No| D[Import from graphiti_core.llm_client]
+    D --> E{Import Successful?}
+    E -->|Yes| F[Cache Client]
+    F --> G[Return Client]
+    E -->|No| H[Raise Error]
+```
 
 ## Client Implementation Requirements
 
-To be automatically discovered and registered, a client implementation must:
+To be used with the ClientRegistry, a client implementation must:
 
-1. Be defined in a file with a name ending in `_client.py` in the `llm_client` directory
+1. Be defined in the `llm_client` directory
 2. Inherit from the `LLMClient` base class
-3. Be defined in the module where it's imported (not imported from another module)
+3. Be exported by the `graphiti_core.llm_client` module
 
 Example client implementation pattern:
 
-- Create a new file named `custom_client.py` in the `llm_client` directory
+- Create a new client class in the `llm_client` directory
 - Define a class that inherits from `LLMClient`
 - Implement the required methods, especially `_generate_response`
-- The client will be automatically discovered and registered
+- Add the client class to the exports in `llm_client/__init__.py`
 
 ## Using the Client Registry
 
 The `TunedLLMManager` uses the client registry to create client instances:
 
 1. It gets the client class from the registry using the client type name
-2. It creates an instance of the client class with the appropriate configuration
-3. The configuration includes connection parameters and client-specific settings
-4. If the client type is not found in the registry, it raises an error
+2. The registry imports the client class directly from `graphiti_core.llm_client` if needed
+3. It creates an instance of the client class with the appropriate configuration
+4. If the client type is not found, it raises an error
 
-## Benefits of Auto-Discovery
+## Benefits of Direct Imports
 
-1. **Extensibility**: New client types can be added without modifying the `TunedLLMManager` class.
+1. **Simplicity**: Direct imports are simpler and more reliable than dynamic discovery.
 
-2. **Maintainability**: The code is more maintainable as it follows the Open/Closed Principle (open for extension, closed for modification).
+2. **Maintainability**: The code is more maintainable as it follows standard Python import patterns.
 
 3. **Consistency**: All client types are handled in a consistent way.
 
-4. **Discoverability**: It's easy to see what client types are available by looking at the files in the `llm_client` directory.
+4. **Discoverability**: It's easy to see what client types are available by looking at the exports in `llm_client/__init__.py`.
 
 5. **Modularity**: Each client implementation is self-contained and doesn't need to know about the manager.
 
 6. **Testability**: Client implementations can be tested in isolation.
 
-7. **Flexibility**: New client types can be added by simply adding a new file following the naming convention.
+7. **Flexibility**: New client types can be added by simply adding them to the exports in `llm_client/__init__.py`.
 
-## Optional Enhancement: Self-Registering Clients
+## Self-Registering Clients
 
-For even more flexibility, clients can be made self-registering using a decorator pattern:
+For additional flexibility, clients can be made self-registering using a decorator pattern:
 
 1. The registry provides a decorator function that registers a class when applied
 2. Client implementations can use this decorator to register themselves
-3. This allows clients to be registered even if they don't follow the naming convention
+3. This allows clients to be registered even if they're not imported in `__init__.py`
 4. It also makes the registration more explicit and self-documenting
 
 ```python

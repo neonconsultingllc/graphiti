@@ -9,6 +9,5 @@ This package provides a manager for LLM clients that handles:
 """
 
 from .manager import TunedLLMManager
-from .context import LLMRequestContext, PromptType
 
-__all__ = ["TunedLLMManager", "LLMRequestContext", "PromptType"]
+__all__ = ["TunedLLMManager"]

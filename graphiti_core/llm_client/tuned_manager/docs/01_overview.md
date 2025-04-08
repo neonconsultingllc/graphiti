@@ -8,7 +8,7 @@ The Multi-Model LLM Architecture provides a flexible, configurable system for wo
 2. **Multi-Client Support**: Seamlessly work with different LLM providers (Ollama, OpenAI, etc.)
 3. **Multi-Instance Support**: Distribute requests across multiple servers
 4. **Multi-Model Selection**: Use different models for different tasks
-5. **Auto-Discovery**: Automatically discover and register new client implementations
+5. **Dynamic Client Loading**: Dynamically load client implementations from the llm_client module
 6. **Configuration-Driven**: Control behavior through YAML configuration files
 7. **Health Monitoring**: Automatically detect and avoid unhealthy servers
 8. **Fallback Mechanisms**: Gracefully handle failures by falling back to alternative clients/models
@@ -20,34 +20,34 @@ flowchart TD
     A[Extraction Function] --> B[Create Request Context]
     B --> C[Set Prompt Type]
     C --> D[TunedLLMManager]
-    
+
     D --> E{Select Client/Instance/Model}
     E --> F[Check Health]
-    
+
     F -->|Healthy| G[Use Selected Instance]
     F -->|Unhealthy| H[Find Healthy Instance]
     H -->|Found| I[Use Healthy Instance]
     H -->|None| J[Use Fallback]
-    
+
     G --> K[Get/Create Client]
     I --> K
     J --> K
-    
+
     K --> L[Load Tuning Config]
     L --> M[Apply Tuning]
     M --> N[Generate Response]
-    
+
     O[YAML Config] --> E
     O --> K
     O --> L
-    
+
     subgraph "Multiple Instances"
         P1[Local Server]
         P2[Server 1 - 70B Models]
         P3[Server 2 - 8B Models]
         P4[Server 3 - Backup]
     end
-    
+
     F -.-> P1
     F -.-> P2
     F -.-> P3
@@ -66,9 +66,9 @@ The central component that manages client selection, health checking, and parame
 
 ### 2. Client Registry
 
-Automatically discovers and registers LLM client implementations:
-- Scans the `llm_client` directory for files ending with `_client.py`
-- Registers all classes that inherit from `LLMClient`
+Manages LLM client implementations through direct imports:
+- Imports client classes directly from `graphiti_core.llm_client` when needed
+- Caches imported client classes for reuse
 - Provides a registry of available client types
 
 ### 3. Configuration System

@@ -1,37 +1,13 @@
-# Default configuration for all clients and models
+# Configuration using prompt library paths
+# This is a sample configuration that demonstrates using the exact prompt library paths as configuration keys
 
-# Global connection settings
-connections:
-  OllamaClient:
-    # Client-specific settings
-    settings:
-      health_endpoint: "/api/health"
-      timeout: 5.0
-      
-    # Multiple instances
-    instances:
-      local:
-        base_url: "http://localhost:11434"
-        api_key: ""
-        description: "Local Ollama server"
-        
-  OpenAIClient:
-    # Client-specific settings
-    settings:
-      health_endpoint: null  # No health endpoint for OpenAI
-      timeout: 10.0
-      
-    base_url: "https://api.openai.com/v1"
-    api_key: "${OPENAI_API_KEY}"
-    
-  AnthropicClient:
-    # Client-specific settings
-    settings:
-      health_endpoint: null  # No health endpoint for Anthropic
-      timeout: 15.0
-      
-    base_url: "https://api.anthropic.com"
-    api_key: "${ANTHROPIC_API_KEY}"
+# Common parameters for all prompts
+common:
+  temperature: 0.7
+  top_p: 0.95
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  max_tokens: 8192
 
 # Model selection settings
 model_selection:
@@ -40,31 +16,108 @@ model_selection:
   default_model: "llama3.3:70b-instruct-q8_0"
   
   # Model selection for specific prompt types
-  node_extraction:
+  extract_nodes:
     client: "OllamaClient"
     instance: "local"
- 
-    
-# Common parameter settings for all prompt types
-common:
-  temperature: 0.7
-  top_p: 0.95
-  frequency_penalty: 0.0
-  presence_penalty: 0.0
+    model: "llama3.3:70b-instruct-q8_0"
+  
+  extract_edges:
+    client: "OllamaClient"
+    instance: "local"
+    model: "llama3.3:70b-instruct-q8_0"
 
-# Settings for specific prompt types
-node_extraction:
+
+
+# Top-level prompt categories
+extract_nodes:
+  temperature: 0.2
   max_tokens: 4096
-  temperature: 0.2  # Override common setting
+  
+  # Sub-categories
+  extract_message:
+    max_tokens: 6144
+  
+  extract_text:
+    max_tokens: 4096
+    
+  extract_json:
+    max_tokens: 4096
+    
+  reflexion:
+    temperature: 0.0
+    max_tokens: 2048
+    
+  classify_nodes:
+    temperature: 0.1
+    max_tokens: 2048
 
-edge_extraction:
+extract_edges:
+  temperature: 0.1
   max_tokens: 8192
-  temperature: 0.1  # Override common setting
+  
+  edge:
+    max_tokens: 8192
+    
+  reflexion:
+    temperature: 0.0
+    max_tokens: 2048
 
-reflexion:
+dedupe_nodes:
+  temperature: 0.1
+  max_tokens: 4096
+  
+  node:
+    max_tokens: 4096
+    
+  node_list:
+    max_tokens: 4096
+
+dedupe_edges:
+  temperature: 0.1
+  max_tokens: 4096
+  
+  edge:
+    max_tokens: 4096
+    
+  edge_list:
+    max_tokens: 4096
+
+invalidate_edges:
+  temperature: 0.1
+  max_tokens: 4096
+  
+  v2:
+    max_tokens: 4096
+
+extract_edge_dates:
+  temperature: 0.1
   max_tokens: 2048
-  temperature: 0.0  # More deterministic for reflexion
+  
+  v1:
+    max_tokens: 2048
 
-summarization:
-  max_tokens: 1024
+summarize_nodes:
   temperature: 0.3
+  max_tokens: 1024
+  
+  summarize_pair:
+    max_tokens: 1024
+    
+  summarize_context:
+    max_tokens: 1024
+    
+  summary_description:
+    max_tokens: 512
+
+eval:
+  temperature: 0.0
+  max_tokens: 2048
+  
+  qa_prompt:
+    max_tokens: 2048
+    
+  eval_prompt:
+    max_tokens: 2048
+    
+  query_expansion:
+    max_tokens: 1024

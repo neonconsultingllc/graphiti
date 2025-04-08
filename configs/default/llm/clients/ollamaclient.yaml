@@ -1,5 +1,0 @@
-common:
-  repeat_penalty: 1.05
-
-edge_extraction:
-  repeat_penalty: 1.1
